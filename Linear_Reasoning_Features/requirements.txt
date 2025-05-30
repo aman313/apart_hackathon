@@ -6,3 +6,5 @@ matplotlib==3.8.3
 torch==2.5.1
 nltk==3.8.1
 rouge==1.0.0
+transformers
+datasets
