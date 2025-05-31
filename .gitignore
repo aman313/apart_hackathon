@@ -1,1 +1,10 @@
 /data
+
+#pycache folders in subdirectories as well
+**/__pycache__/
+# Ignore all .pyc files
+*.pyc
+
+# venv
+venv/
+.venv/

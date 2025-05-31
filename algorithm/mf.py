@@ -10,13 +10,15 @@ from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torch.optim import Adam
 from tqdm import tqdm
 
+from data_preprocessing.get_question_embedding_tensor import get_question_embeddings
+
 # Set seeds for reproducibility
 torch.manual_seed(42)
 np.random.seed(42)
 random.seed(42)
 
 class TextMF(nn.Module):
-    def __init__(self, question_embeddings, model_embedding_dim, alpha, num_models, num_prompts, text_dim=768, num_classes=2):
+    def __init__(self, question_embeddings, model_embedding_dim, alpha, num_models, num_prompts, text_dim=1024, num_classes=2):
         super(TextMF, self).__init__()
         # Model embedding network
         self.P = nn.Embedding(num_models, model_embedding_dim)
@@ -281,6 +283,11 @@ def load_model(net, path, device):
     net.load_state_dict(torch.load(path, map_location=device))
     print(f"Model loaded from {path}")
 
+def filter_df_by_value(df, col_name, value):
+    mask = df[col_name] == value
+    return df[mask]
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -289,23 +296,42 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--num-epochs", type=int, default=50)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--train-data-path", type=str, default="../data/train.csv")
-    parser.add_argument("--test-data-path", type=str, default="../data/test.csv")
-    parser.add_argument("--question-embedding-path", type=str, default="../data/question_embeddings.pth")
-    parser.add_argument("--embedding-save-path", type=str, default="../data/model_embeddings.pth")
-    parser.add_argument("--model-save-path", type=str, default="../data/saved_model.pth")
+    parser.add_argument("--train-data-path", type=str, default="data/train.csv")
+    parser.add_argument("--test-data-path", type=str, default="data/test.csv")
+    parser.add_argument("--model-mapping-path", type=str, default="data/model_order.csv")
+    parser.add_argument("--question-embedding-path", type=str, default="data/question_embeddings.pth")
+    parser.add_argument("--embedding-save-path", type=str, default="data/model_embeddings.pth")
+    parser.add_argument("--model-save-path", type=str, default="data/saved_model.pth")
     parser.add_argument("--model-load-path", type=str, default=None)
-    parser.add_argument("--eval-mode", type=str, default="correctness", 
+    parser.add_argument("--eval-mode", type=str, default="router", 
                        choices=["correctness", "router"],
                        help="Evaluation mode: correctness or router")
     parser.add_argument("--model-num", type=int, default=112,
                        help="Number of models for router evaluation")
+    parser.add_argument("--desired-model", type=int, default = -1, help="Desired Model, in case of model specific embedding")
+    parser.add_argument("--model-specific-embedding", type=bool, default=False, 
+                        help="")
+    
     args = parser.parse_args()
 
     print("Loading dataset...")
     train_data = pd.read_csv(args.train_data_path)
     test_data = pd.read_csv(args.test_data_path)
-    question_embeddings = torch.load(args.question_embedding_path)
+    if args.desired_model >= 0:
+        desired_model = args.desired_model
+        train_data = filter_df_by_value(train_data, "model_id", desired_model)
+        test_data = filter_df_by_value(test_data, "model_id", desired_model)
+    print(f"Train data size: {len(train_data)}, Test data size: {len(test_data)}")
+    print("Loading question embeddings...")
+    if args.desired_model < 0 or not args.model_specific_embedding:
+        print("Using default question embeddings from file...")
+        question_embeddings = torch.load(args.question_embedding_path)
+    else:
+        print(f"Using model-specific question embeddings for model ID {args.desired_model}...")
+        model_mapping = pd.read_csv(args.model_mapping_path)
+        desired_model_name = model_mapping[model_mapping["model_id"] == args.desired_model]["model_name"].values[0]
+        question_embeddings = get_question_embeddings(model_name=desired_model_name.replace("__", "/"))
+
     num_prompts = question_embeddings.shape[0]
     num_models = len(test_data["model_id"].unique())
     model_names = list(np.unique(list(test_data["model_name"])))

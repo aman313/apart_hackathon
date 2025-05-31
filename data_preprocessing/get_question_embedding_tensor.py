@@ -3,8 +3,9 @@ from sentence_transformers import SentenceTransformer
 import pandas as pd
 import torch
 import os
+import gc
 
-def get_question_embeddings(csv_path, model_name= 'all-mpnet-base-v2'):
+def get_question_embeddings(csv_path = "data/question_order.csv", model_name= 'all-mpnet-base-v2'):
     """
     Generate embeddings for questions in the order specified in the CSV file.
     
@@ -20,6 +21,11 @@ def get_question_embeddings(csv_path, model_name= 'all-mpnet-base-v2'):
     questions = df['prompt'].tolist()
     embeddings = model.encode(questions, show_progress_bar=True)
     embedding_tensor = torch.tensor(embeddings)
+
+    del model, questions, embeddings
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
     
     return embedding_tensor
 
