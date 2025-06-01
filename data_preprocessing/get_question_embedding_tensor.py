@@ -11,6 +11,7 @@ def question_activations_last_token(
         model_name,
         batch_size=16,
         use_only_last_layer=False,
+        use_quantization=False,
 ):
     """
      The model is not a sentence transfomer but uses transformer architecture
@@ -21,9 +22,18 @@ def question_activations_last_token(
      use bf16 precision
      batch using batch_size for the forward pass
     """
+    if use_quantization:
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+    else:
+        quantization_config = None
     df = pd.read_csv(csv_path)
     questions = df["prompt"].tolist()
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
+    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16, quantization_config=quantization_config)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model.eval()
     # use cuda or mps when available
@@ -105,7 +115,7 @@ if __name__ == "__main__":
 
     # Generate embeddings
     #question_embeddings = get_question_embeddings(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=4)
-    question_embeddings = question_activations_last_token(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1)
+    question_embeddings = question_activations_last_token(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1, use_quantization=True)
 
     # Save the tensor
     output_path = "../data/question_embeddings.pth"
