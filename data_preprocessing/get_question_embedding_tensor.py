@@ -70,15 +70,15 @@ def question_embeddings_model_specific(
         embedding_tensor = torch.cat((embedding_tensor, forward_pass.mean(dim=1).to(device)), dim=0)
         del inputs
         gc.collect()
-        if device == "cuda":
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-        elif device == "mps":
-            torch.mps.empty_cache()
-            torch.mps.synchronize()
-        else:
-            torch.empty_cache()
-            torch.synchronize()
+        # if device == "cuda":
+        #     torch.cuda.empty_cache()
+        #     torch.cuda.synchronize()
+        # elif device == "mps":
+        #     torch.mps.empty_cache()
+        #     torch.mps.synchronize()
+        # else:
+        #     torch.empty_cache()
+        #     torch.synchronize()
     return embedding_tensor
 
 def question_activations_last_token(
