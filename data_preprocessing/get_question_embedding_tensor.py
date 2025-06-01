@@ -4,7 +4,82 @@ import pandas as pd
 import torch
 import os
 import gc
+import tqdm
 
+
+class PartialForwardPassCausalLM():
+    """
+       Implements a model which does a partial forward pass upto some layer l in a given LLM
+    """
+    
+    def __init__(self, model, layer_index):
+        self.layer_index = layer_index
+        """
+        Start with an empty model
+        copy the layers of the supplied model upto layer_index
+        on forward pass, forward pass the input_ids through the model and return the output of the layer_index layer
+        """
+        self.model = torch.nn.Sequential()
+        for i in range(layer_index):
+            self.model.add_module(f"layer_{i}", model.layers[i])
+
+    # forward pass the input_ids through the model and return the output of the layer_index layer
+    # there should be an option to return hidden states of all layers
+    def forward(self, input_ids, return_hidden_states_last_token=False):
+        if return_hidden_states_last_token:
+            return self.model(input_ids, output_hidden_states=True).hidden_states[-1]
+        else:
+            return self.model(input_ids)
+
+
+
+
+
+def question_embeddings_model_specific(
+        csv_path,
+        model_name,
+        batch_size=16,
+):
+    """
+        Embed each input questions using input specific tokenizer
+        get question specific embedding by taking mean embedding of all tokens
+        return the embedding tensor
+    """
+    df = pd.read_csv(csv_path)
+    questions = df["prompt"].tolist()
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
+    model.eval()
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    model.to(device)
+    # extract the embedding layer of the model and create a new pytorch model with only the embedding layer
+    embedding_layer = model.get_input_embeddings()
+    # create a new pytorch model copy of the embedding layer.
+    # forward pass the input_ids through the embedding layer and take the mean of the embedding for each question
+    # return the embedding tensor
+    # use bf16 precision
+    embedding_model = torch.nn.Sequential(embedding_layer)
+    embedding_model.eval()
+    embedding_model.to(device)
+    embedding_tensor = torch.tensor([], dtype=torch.bfloat16, device=device)
+    for i in tqdm.tqdm(range(0, len(questions), batch_size)):
+        batch_questions = questions[i:i+batch_size]       
+        inputs = tokenizer(batch_questions, return_tensors="pt", padding=True, truncation=True)
+        input_ids = inputs.input_ids.to(device)
+        forward_pass = embedding_model(input_ids)
+        embedding_tensor = torch.cat((embedding_tensor, forward_pass.mean(dim=1).to(device)), dim=0)
+        del inputs
+        gc.collect()
+        if device == "cuda":
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        elif device == "mps":
+            torch.mps.empty_cache()
+            torch.mps.synchronize()
+        else:
+            torch.empty_cache()
+            torch.synchronize()
+    return embedding_tensor
 
 def question_activations_last_token(
         csv_path,
@@ -40,7 +115,7 @@ def question_activations_last_token(
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     model.to(device)
     embedding_tensor = torch.tensor([], dtype=torch.bfloat16)
-    for i in range(0, len(questions), batch_size):
+    for i in tqdm.tqdm(range(0, len(questions), batch_size)):
         batch_questions = questions[i:i+batch_size]
         inputs = tokenizer(batch_questions, return_tensors="pt", padding=True, truncation=True).to(device)
         outputs = model(**inputs, output_hidden_states=True)
@@ -59,6 +134,8 @@ def question_activations_last_token(
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
+        if device == "mps":
+            torch.mps.empty_cache()
     return embedding_tensor
 
 def get_question_embeddings(
@@ -111,14 +188,16 @@ def get_question_embeddings(
 
 if __name__ == "__main__":
     # Set paths
-    csv_path = "data/question_order.csv"
+    csv_path = "/Users/aman/Documents/apart_hackathon/data_preprocessing/data/question_order.csv"
 
     # Generate embeddings
     #question_embeddings = get_question_embeddings(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=4)
-    question_embeddings = question_activations_last_token(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1, use_quantization=True)
+    # question_embeddings = question_activations_last_token(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1, use_quantization=True)
+
+    question_embeddings = question_embeddings_model_specific(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1)
 
     # Save the tensor
-    output_path = "../data/question_embeddings.pth"
+    output_path = "/Users/aman/Documents/apart_hackathon/data_preprocessing/data/question_embeddings_model_mean.pth"
     torch.save(question_embeddings, output_path)
 
     print(f"Generated embeddings tensor of shape: {question_embeddings.shape}")
