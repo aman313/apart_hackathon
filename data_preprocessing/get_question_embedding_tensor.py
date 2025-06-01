@@ -33,12 +33,17 @@ def question_activations_last_token(
     for i in range(0, len(questions), batch_size):
         batch_questions = questions[i:i+batch_size]
         inputs = tokenizer(batch_questions, return_tensors="pt", padding=True, truncation=True).to(device)
-        outputs = model(**inputs)
-        last_token_activations = outputs.last_hidden_state[:, -1, :]
+        outputs = model(**inputs, output_hidden_states=True)
+        # Get the hidden states from the last layer
+        last_hidden_states = outputs.hidden_states[-1]
+        # Get the activations for the last token
+        last_token_activations = last_hidden_states[:, -1, :]
         if use_only_last_layer:
-            last_token_activations = last_token_activations[:, -1, :]
+            last_token_activations = last_token_activations
         else:
-            last_token_activations = last_token_activations.mean(dim=1)
+            # Stack all hidden states and take mean across layers
+            all_hidden_states = torch.stack(outputs.hidden_states)
+            last_token_activations = all_hidden_states[:, :, -1, :].mean(dim=0)
         embedding_tensor = torch.cat((embedding_tensor, last_token_activations), dim=0)
         del inputs, outputs, last_token_activations
         gc.collect()
