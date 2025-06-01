@@ -4,6 +4,7 @@ import torch
 import pandas as pd
 import numpy as np
 import time
+from pathlib import Path
 
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, TensorDataset
@@ -17,8 +18,18 @@ torch.manual_seed(42)
 np.random.seed(42)
 random.seed(42)
 
+
 class TextMF(nn.Module):
-    def __init__(self, question_embeddings, model_embedding_dim, alpha, num_models, num_prompts, text_dim=1024, num_classes=2):
+    def __init__(
+        self,
+        question_embeddings,
+        model_embedding_dim,
+        alpha,
+        num_models,
+        num_prompts,
+        text_dim=1024,
+        num_classes=2,
+    ):
         super(TextMF, self).__init__()
         # Model embedding network
         self.P = nn.Embedding(num_models, model_embedding_dim)
@@ -40,22 +51,30 @@ class TextMF(nn.Module):
             q += torch.randn_like(q) * self.alpha
         q = self.text_proj(q)
         return self.classifier(p * q)
-    
+
     @torch.no_grad()
     def predict(self, model, prompt):
-        logits = self.forward(model, prompt, test_mode=True) # During inference no noise is applied
+        logits = self.forward(
+            model, prompt, test_mode=True
+        )  # During inference no noise is applied
         return torch.argmax(logits, dim=1)
-    
+
+
 # Helper functions to load and process the data into desired format needed for MF
 # For MF we need a "model ID" either in the form of name or index and so we use the tabular data instead of tensors
 def load_and_process_data(train_data, test_data, batch_size=64):
     # NOTE: Due to the nature of the embedding layer we need to take max prompt ID from both train and test data
     # But during training we won't be using test question
-    num_prompts = int(max(max(train_data["prompt_id"]), max(test_data["prompt_id"]))) + 1
+    num_prompts = (
+        int(max(max(train_data["prompt_id"]), max(test_data["prompt_id"]))) + 1
+    )
+
     class CustomDataset(Dataset):
         def __init__(self, data):
             model_ids = torch.tensor(data["model_id"], dtype=torch.int64)
-            unique_ids, inverse_indices = torch.unique(model_ids, sorted=True, return_inverse=True)
+            unique_ids, inverse_indices = torch.unique(
+                model_ids, sorted=True, return_inverse=True
+            )
             id_to_rank = {id.item(): rank for rank, id in enumerate(unique_ids)}
             ranked_model_ids = torch.tensor([id_to_rank[id.item()] for id in model_ids])
             self.models = ranked_model_ids
@@ -90,7 +109,8 @@ def load_and_process_data(train_data, test_data, batch_size=64):
     test_loader = test_dataset.get_dataloaders(batch_size)
 
     return train_loader, test_loader
-    
+
+
 def correctness_prediction_evaluator(net, test_loader, device):
     """Standard evaluator for correctness prediction"""
     net.eval()
@@ -101,7 +121,11 @@ def correctness_prediction_evaluator(net, test_loader, device):
 
     with torch.no_grad():
         for models, prompts, labels in test_loader:
-            models, prompts, labels = models.to(device), prompts.to(device), labels.to(device)
+            models, prompts, labels = (
+                models.to(device),
+                prompts.to(device),
+                labels.to(device),
+            )
             logits = net(models, prompts)
             loss = loss_fn(logits, labels)
             pred_labels = net.predict(models, prompts)
@@ -114,7 +138,10 @@ def correctness_prediction_evaluator(net, test_loader, device):
     net.train()
     return mean_loss, accuracy
 
-def evaluate(net, test_loader, device, eval_mode="correctness", acc_dict=None, model_num=112):
+
+def evaluate(
+    net, test_loader, device, eval_mode="correctness", acc_dict=None, model_num=112
+):
     """Unified evaluation function that routes to specific evaluator based on mode"""
     if eval_mode == "correctness":
         return correctness_prediction_evaluator(net, test_loader, device)
@@ -123,12 +150,13 @@ def evaluate(net, test_loader, device, eval_mode="correctness", acc_dict=None, m
     else:
         raise ValueError(f"Unknown eval_mode: {eval_mode}")
 
+
 def evaluator_router(net, test_iter, devices, acc_dict, model_num=112):
     start_time = time.time()
     net.eval()
     successful_num_routes = 0
     num_prompts = 0
-    
+
     model_counts = [0] * model_num
     correctness_result = {}
     with torch.no_grad():
@@ -159,7 +187,7 @@ def evaluator_router(net, test_iter, devices, acc_dict, model_num=112):
     for model_id, count in enumerate(model_counts):
         if count > 0:
             weighted_acc_sum += acc_dict[model_id] * count
-    
+
     if sum(model_counts) > 0:
         weighted_accuracy = weighted_acc_sum / sum(model_counts)
     else:
@@ -171,6 +199,7 @@ def evaluator_router(net, test_iter, devices, acc_dict, model_num=112):
     end_time = time.time()
     print(f"Time used to route {num_prompts} questions: {end_time - start_time}")
     return "N/A", route_acc, correctness_result, model_counts
+
 
 def create_router_dataloader(original_dataloader):
     """
@@ -186,7 +215,7 @@ def create_router_dataloader(original_dataloader):
         all_models.append(models)
         all_prompts.append(prompts)
         all_labels.append(labels)
-    
+
     all_models = torch.cat(all_models)
     all_prompts = torch.cat(all_prompts)
     all_labels = torch.cat(all_labels)
@@ -197,7 +226,7 @@ def create_router_dataloader(original_dataloader):
         prompt_id = int(all_prompts[i])
         model_id = int(all_models[i])
         label = int(all_labels[i])
-        
+
         if prompt_id not in label_dict:
             label_dict[prompt_id] = {}
         label_dict[prompt_id][model_id] = label
@@ -212,8 +241,10 @@ def create_router_dataloader(original_dataloader):
     for prompt_id in unique_prompts:
         prompt_tensor = torch.tensor([prompt_id] * model_num)
         model_tensor = torch.tensor(unique_models)
-        label_tensor = torch.tensor([label_dict[prompt_id].get(model_id, 0) for model_id in unique_models])
-        
+        label_tensor = torch.tensor(
+            [label_dict[prompt_id].get(model_id, 0) for model_id in unique_models]
+        )
+
         new_prompts.append(prompt_tensor)
         new_models.append(model_tensor)
         new_labels.append(label_tensor)
@@ -222,7 +253,7 @@ def create_router_dataloader(original_dataloader):
     new_prompts = torch.cat(new_prompts)
     new_models = torch.cat(new_models)
     new_labels = torch.cat(new_labels)
-    
+
     # Add dummy categories (all zeros) since they're not used in current implementation
     new_categories = torch.zeros_like(new_labels)
 
@@ -239,9 +270,21 @@ def create_router_dataloader(original_dataloader):
 
     return router_dataloader, label_dict, acc_dict
 
+
 # Main training loop
-def train(net, train_loader, test_loader, num_epochs, lr, device, eval_mode="correctness", 
-          acc_dict=None, model_num=112, weight_decay=1e-5, save_path=None):
+def train(
+    net,
+    train_loader,
+    test_loader,
+    num_epochs,
+    lr,
+    device,
+    eval_mode="correctness",
+    acc_dict=None,
+    model_num=112,
+    weight_decay=1e-5,
+    save_path=None,
+):
     optimizer = Adam(net.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.CrossEntropyLoss()
     progress_bar = tqdm(total=num_epochs)
@@ -250,7 +293,11 @@ def train(net, train_loader, test_loader, num_epochs, lr, device, eval_mode="cor
         net.train()
         total_loss = 0
         for models, prompts, labels in train_loader:
-            models, prompts, labels = models.to(device), prompts.to(device), labels.to(device)
+            models, prompts, labels = (
+                models.to(device),
+                prompts.to(device),
+                labels.to(device),
+            )
 
             optimizer.zero_grad()
             logits = net(models, prompts)
@@ -262,31 +309,36 @@ def train(net, train_loader, test_loader, num_epochs, lr, device, eval_mode="cor
         train_loss = total_loss / len(train_loader)
         print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss}")
 
-        eval_results = evaluate(net, test_loader, device, eval_mode, acc_dict, model_num)
-        
+        eval_results = evaluate(
+            net, test_loader, device, eval_mode, acc_dict, model_num
+        )
+
         if eval_mode == "correctness":
             test_loss, test_accuracy = eval_results
             print(f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}")
-            progress_bar.set_postfix(train_loss=train_loss, test_loss=test_loss, test_acc=test_accuracy)
+            progress_bar.set_postfix(
+                train_loss=train_loss, test_loss=test_loss, test_acc=test_accuracy
+            )
         else:  # router mode
             _, route_acc, correctness_result, model_counts = eval_results
             print(f"Route Accuracy: {route_acc:.4f}")
             progress_bar.set_postfix(train_loss=train_loss, route_acc=route_acc)
-            
+
         progress_bar.update(1)
-    
+
     if save_path:
         torch.save(net.state_dict(), save_path)
         print(f"Model saved to {save_path}")
+
 
 def load_model(net, path, device):
     net.load_state_dict(torch.load(path, map_location=device))
     print(f"Model loaded from {path}")
 
-def filter_df_by_value(df, col_name, value):
-    mask = df[col_name] == value
-    return df[mask]
 
+def filter_df_by_values(df, col_name, values):
+    mask = df[col_name].isin(values)
+    return df[mask]
 
 
 if __name__ == "__main__":
@@ -298,51 +350,88 @@ if __name__ == "__main__":
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--train-data-path", type=str, default="data/train.csv")
     parser.add_argument("--test-data-path", type=str, default="data/test.csv")
-    parser.add_argument("--model-mapping-path", type=str, default="data/model_order.csv")
-    parser.add_argument("--question-embedding-path", type=str, default="data/question_embeddings.pth")
-    parser.add_argument("--embedding-save-path", type=str, default="data/model_embeddings.pth")
+    parser.add_argument(
+        "--model-mapping-path", type=str, default="data/model_order.csv"
+    )
+    parser.add_argument(
+        "--question-embedding-path", type=str, default="data/question_embeddings.pth"
+    )
+    parser.add_argument(
+        "--embedding-save-path", type=str, default="data/model_embeddings.pth"
+    )
     parser.add_argument("--model-save-path", type=str, default="data/saved_model.pth")
     parser.add_argument("--model-load-path", type=str, default=None)
-    parser.add_argument("--eval-mode", type=str, default="router", 
-                       choices=["correctness", "router"],
-                       help="Evaluation mode: correctness or router")
-    parser.add_argument("--model-num", type=int, default=112,
-                       help="Number of models for router evaluation")
-    parser.add_argument("--desired-model", type=int, default = -1, help="Desired Model, in case of model specific embedding")
-    parser.add_argument("--model-specific-embedding", type=bool, default=False, 
-                        help="")
-    
+    parser.add_argument(
+        "--eval-mode",
+        type=str,
+        default="router",
+        choices=["correctness", "router"],
+        help="Evaluation mode: correctness or router",
+    )
+    parser.add_argument(
+        "--model-num",
+        type=int,
+        default=2,
+        help="Number of models for router evaluation",
+    )
+    parser.add_argument(
+        "--desired-models", type=int, nargs="*", help="Desired Models, comma separated"
+    )
+    parser.add_argument("--model-specific-embedding", type=bool, default=False, help="")
+
     args = parser.parse_args()
 
     print("Loading dataset...")
     train_data = pd.read_csv(args.train_data_path)
     test_data = pd.read_csv(args.test_data_path)
-    if args.desired_model >= 0:
-        desired_model = args.desired_model
-        train_data = filter_df_by_value(train_data, "model_id", desired_model)
-        test_data = filter_df_by_value(test_data, "model_id", desired_model)
+    if args.desired_models:
+        desired_models = args.desired_models
+        train_data = filter_df_by_values(train_data, "model_id", desired_models)
+        test_data = filter_df_by_values(test_data, "model_id", desired_models)
     print(f"Train data size: {len(train_data)}, Test data size: {len(test_data)}")
     print("Loading question embeddings...")
-    if args.desired_model < 0 or not args.model_specific_embedding:
+    if not args.desired_models or not args.model_specific_embedding:
         print("Using default question embeddings from file...")
         question_embeddings = torch.load(args.question_embedding_path)
     else:
-        print(f"Using model-specific question embeddings for model ID {args.desired_model}...")
-        model_mapping = pd.read_csv(args.model_mapping_path)
-        desired_model_name = model_mapping[model_mapping["model_id"] == args.desired_model]["model_name"].values[0]
-        question_embeddings = get_question_embeddings(model_name=desired_model_name.replace("__", "/"))
+        for model_id in args.desired_models:
+            print(
+                f"Using model-specific question embeddings for model ID {model_id}..."
+            )
+            model_embedding_path = (
+                f"data/model_specific_embeddings/model_{model_id}.pth"
+            )
+            model_embedding_path = Path(model_embedding_path)
+            if model_embedding_path.is_file():
+                question_embeddings = torch.load(model_embedding_path)
+            else:
+                model_mapping = pd.read_csv(args.model_mapping_path)
+                desired_model_name = model_mapping[
+                    model_mapping["model_id"] == model_id
+                ]["model_name"].values[0]
+                question_embeddings = get_question_embeddings(
+                    model_name=desired_model_name.replace("__", "/"), batch_size=8
+                )
+                model_embedding_path.parent.mkdir(exist_ok=True, parents=True)
+                torch.save(question_embeddings, model_embedding_path)
 
     num_prompts = question_embeddings.shape[0]
     num_models = len(test_data["model_id"].unique())
     model_names = list(np.unique(list(test_data["model_name"])))
 
-    train_loader, test_loader = load_and_process_data(train_data, test_data, batch_size=args.batch_size)
+    train_loader, test_loader = load_and_process_data(
+        train_data, test_data, batch_size=args.batch_size
+    )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("Initializing model...")
-    model = TextMF(question_embeddings=question_embeddings, 
-                   model_embedding_dim=args.embedding_dim, alpha=args.alpha,
-                   num_models=num_models, num_prompts=num_prompts)
+    model = TextMF(
+        question_embeddings=question_embeddings,
+        model_embedding_dim=args.embedding_dim,
+        alpha=args.alpha,
+        num_models=num_models,
+        num_prompts=num_prompts,
+    )
     model.to(device)
 
     if args.model_load_path:
@@ -356,16 +445,22 @@ if __name__ == "__main__":
     else:
         acc_dict = None
 
-    train(model, train_loader, test_loader, 
-          num_epochs=args.num_epochs, 
-          lr=args.learning_rate,
-          device=device, 
-          eval_mode=args.eval_mode,
-          acc_dict=acc_dict,
-          model_num=args.model_num,
-          save_path=args.model_save_path)
+    train(
+        model,
+        train_loader,
+        test_loader,
+        num_epochs=args.num_epochs,
+        lr=args.learning_rate,
+        device=device,
+        eval_mode=args.eval_mode,
+        acc_dict=acc_dict,
+        model_num=args.model_num,
+        save_path=args.model_save_path,
+    )
     if args.embedding_save_path:
-        torch.save(model.P.weight.detach().to("cpu"), args.embedding_save_path) # Save model embeddings if needed
+        torch.save(
+            model.P.weight.detach().to("cpu"), args.embedding_save_path
+        )  # Save model embeddings if needed
     if args.model_save_path:
         torch.save(model.state_dict(), args.model_save_path)
         print(f"Model saved to {args.model_save_path}")
