@@ -11,7 +11,6 @@ from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torch.optim import Adam
 from tqdm import tqdm
 
-from data_preprocessing.get_question_embedding_tensor import get_question_embeddings
 
 # Set seeds for reproducibility
 torch.manual_seed(42)
@@ -364,7 +363,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--eval-mode",
         type=str,
-        default="router",
+        default="correctness",
         choices=["correctness", "router"],
         help="Evaluation mode: correctness or router",
     )
@@ -375,7 +374,7 @@ if __name__ == "__main__":
         help="Number of models for router evaluation",
     )
     parser.add_argument(
-        "--desired-models", type=int, nargs="*", help="Desired Models, comma separated"
+        "--desired-models", type=str, nargs="*", help="Desired Models, comma separated"
     )
     parser.add_argument("--model-specific-embedding", type=bool, default=False, help="")
 
@@ -405,6 +404,7 @@ if __name__ == "__main__":
             if model_embedding_path.is_file():
                 question_embeddings = torch.load(model_embedding_path)
             else:
+                from data_preprocessing.get_question_embedding_tensor import get_question_embeddings
                 model_mapping = pd.read_csv(args.model_mapping_path)
                 desired_model_name = model_mapping[
                     model_mapping["model_id"] == model_id
