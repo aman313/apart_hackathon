@@ -29,7 +29,7 @@ def question_activations_last_token(
     # use cuda or mps when available
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     model.to(device)
-    embedding_tensor = torch.tensor([], dtype=torch.bfloat16)
+    embedding_tensor = torch.tensor([], dtype=torch.bfloat16, device=device)
     for i in range(0, len(questions), batch_size):
         batch_questions = questions[i:i+batch_size]
         inputs = tokenizer(batch_questions, return_tensors="pt", padding=True, truncation=True).to(device)
