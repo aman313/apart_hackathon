@@ -190,11 +190,14 @@ if __name__ == "__main__":
     # Set paths
     csv_path = "data/question_order.csv"
 
-    # Generate embeddings
-    #question_embeddings = get_question_embeddings(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=4)
-    # question_embeddings = question_activations_last_token(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1, use_quantization=True)
+    # Parse command line arguments
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-32B-Instruct")
+    args = parser.parse_args()
 
-    question_embeddings = question_embeddings_model_specific(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1)
+    # Generate embeddings
+    question_embeddings = question_embeddings_model_specific(csv_path, model_name=args.model_name, batch_size=1)
 
     # Save the tensor
     output_path = "data/question_embeddings_model_mean.pth"
