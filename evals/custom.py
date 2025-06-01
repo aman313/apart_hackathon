@@ -5,6 +5,7 @@ from martian_apart_hack_sdk import martian_client, utils
 import openai
 from inspect_ai.model import ChatMessageUser, ChatMessageSystem, ChatMessage
 from martian_apart_hack_sdk.models import router_constraints
+from martian_apart_hack_sdk.models.llm_models import DEEPSEEK_R1, DEEPSEEK_V3
 
 
 
@@ -102,8 +103,8 @@ class MartialRouterModel(ModelAPI):
 
 
 if __name__ == "__main__":
-    #model = MartianBaseModel(model_name="gpt-4o-mini")
-    model = MartialRouterModel(router_name="organizations/386aa70e-f2d9-44e6-a067-e04ff02cd125/routers/reasoning-router")
+    model = MartianBaseModel(model_name=DEEPSEEK_V3)
+    #model = MartialRouterModel(router_name="organizations/386aa70e-f2d9-44e6-a067-e04ff02cd125/routers/reasoning-router")
     input = [ChatMessageUser(role="user",content="Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?")]
     async def main():
         result = await model.generate(input=input)

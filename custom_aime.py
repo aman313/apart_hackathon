@@ -9,12 +9,12 @@ from typing import Any, Dict, List
 from inspect_ai.model import ChatCompletionChoice, ChatMessageAssistant, GenerateConfig, Model, ModelAPI, ModelOutput, ModelUsage
 from inspect_ai.tool import Tool, ToolChoice
 from martian_apart_hack_sdk import martian_client, utils 
+from martian_apart_hack_sdk.models.llm_models import DEEPSEEK_R1, DEEPSEEK_V3
 import openai
 from inspect_ai.model import ChatMessageUser, ChatMessageSystem, ChatMessage
 from martian_apart_hack_sdk.models import router_constraints
 from inspect_ai import eval
 from inspect_ai.model._registry import modelapi
-from martian_apart_hack_sdk.models.llm_models import DEEPSEEK_R1, DEEPSEEK_V3
 
 @modelapi(name="martian_base_model")
 class MartianBaseModel(ModelAPI):
@@ -110,86 +110,64 @@ class MartialRouterModel(ModelAPI):
         )
         return model_output
 
-# setup for problem + instructions for providing answer
-MATH_PROMPT_TEMPLATE = """
-Solve the following math problem step by step. The last line of your response should be of the form "ANSWER: $ANSWER" (without quotes) where $ANSWER is the answer to the problem.
+from typing import Any
+
+from inspect_ai import Task, task
+from inspect_ai.dataset import Sample, hf_dataset
+from inspect_ai.scorer import match
+from inspect_ai.solver import (
+    Solver,
+    generate,
+    prompt_template,
+)
+
+USER_PROMPT_TEMPLATE = """
+Solve the following math problem step by step.
+The last line of your response should be of the form "ANSWER: $ANSWER" (without quotes) where $ANSWER is the answer to the problem.
 
 {prompt}
 
 Remember to put your answer on its own line at the end in the form "ANSWER: $ANSWER" (without quotes) where $ANSWER is the answer to the problem, and you do not need to use a \\boxed command.
-
-Reasoning:
 """.strip()
 
 
 @task
-def gsm8k(fewshot: int = 10, fewshot_seed: int = 42) -> Task:
-    """Inspect Task definition for the GSM8K benchmark
+def aime2024() -> Task:
+    """Inspect Task implementation for the AIME 2024 benchmark."""
+    dataset = hf_dataset(
+        path="Maxwell-Jia/AIME_2024",
+        split="train",
+        trust=True,
+        sample_fields=record_to_sample,
+    )
 
-    Args:
-        fewshot (int): The number of few shots to include
-        fewshot_seed (int): The seed for generating few shots
-    """
-    # build solver dynamically (may or may not be doing fewshot)
-    solver = [prompt_template(MATH_PROMPT_TEMPLATE), generate()]
-    if fewshot:
-        fewshots = hf_dataset(
-            path="gsm8k",
-            data_dir="main",
-            split="train",
-            sample_fields=record_to_sample,
-            auto_id=True,
-            shuffle=True,
-            seed=fewshot_seed,
-            limit=fewshot,
-        )
-        solver.insert(
-            0,
-            system_message(
-                "\n\n".join([sample_to_fewshot(sample) for sample in fewshots])
-            ),
-        )
-
-    # define task
     return Task(
-        dataset=hf_dataset(
-            path="gsm8k",
-            data_dir="main",
-            split="test",
-            sample_fields=record_to_sample,
-        ),
-        solver=solver,
-        scorer=match(numeric=True),
+        dataset=dataset,
+        solver=aime2024_solver(),
+        scorer=[
+            match(),
+        ],
     )
 
 
+def aime2024_solver() -> list[Solver]:
+    """Build solver for AIME 2024 task."""
+    solver = [prompt_template(USER_PROMPT_TEMPLATE), generate()]
+    return solver
+
+
 def record_to_sample(record: dict[str, Any]) -> Sample:
-    DELIM = "####"
-    input = record["question"]
-    answer = record["answer"].split(DELIM)
-    target = answer.pop().strip()
-    reasoning = DELIM.join(answer)
-    return Sample(input=input, target=target, metadata={"reasoning": reasoning.strip()})
-
-
-def sample_to_fewshot(sample: Sample) -> str:
-    if sample.metadata:
-        return (
-            f"{sample.input}\n\nReasoning:\n"
-            + f"{sample.metadata['reasoning']}\n\n"
-            + f"ANSWER: {sample.target}"
-        )
-    else:
-        return ""
-
-# class MartianModel(Model):
-#     def __init__(self, model_name: str):
-#         super().__init__(api=MartianBaseModel(model_name=model_name), config=GenerateConfig(max_tokens=100))
-    
-#     async def generate(self, input:list[ChatMessage], tools: list[Tool], tool_choice: ToolChoice, config: GenerateConfig) -> ModelOutput:
-#         return await self.api.generate(input)
+    sample = Sample(
+        id=record["ID"],
+        input=record["Problem"],
+        target=str(record["Answer"]),
+        metadata={
+            "solution": record["Solution"],
+        },
+    )
+    return sample
 
 if __name__ == "__main__":
-    task = gsm8k(fewshot=0)
+    task = aime2024()
     eval(task, model=Model(api=MartianBaseModel(model_name=DEEPSEEK_R1), config=GenerateConfig(max_tokens=1000)))
     # eval(task, model=Model(api=MartialRouterModel(model_name="organizations/386aa70e-f2d9-44e6-a067-e04ff02cd125/routers/reasoning-router"), config=GenerateConfig(max_tokens=1000)))
