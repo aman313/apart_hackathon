@@ -188,7 +188,7 @@ def get_question_embeddings(
 
 if __name__ == "__main__":
     # Set paths
-    csv_path = "/Users/aman/Documents/apart_hackathon/data_preprocessing/data/question_order.csv"
+    csv_path = "data/question_order.csv"
 
     # Generate embeddings
     #question_embeddings = get_question_embeddings(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=4)
@@ -197,7 +197,7 @@ if __name__ == "__main__":
     question_embeddings = question_embeddings_model_specific(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1)
 
     # Save the tensor
-    output_path = "/Users/aman/Documents/apart_hackathon/data_preprocessing/data/question_embeddings_model_mean.pth"
+    output_path = "data/question_embeddings_model_mean.pth"
     torch.save(question_embeddings, output_path)
 
     print(f"Generated embeddings tensor of shape: {question_embeddings.shape}")
