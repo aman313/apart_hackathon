@@ -29,7 +29,7 @@ def question_activations_last_token(
     # use cuda or mps when available
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     model.to(device)
-    embedding_tensor = torch.tensor([], dtype=torch.bfloat16, device=device)
+    embedding_tensor = torch.tensor([], dtype=torch.bfloat16)
     for i in range(0, len(questions), batch_size):
         batch_questions = questions[i:i+batch_size]
         inputs = tokenizer(batch_questions, return_tensors="pt", padding=True, truncation=True).to(device)
@@ -44,7 +44,7 @@ def question_activations_last_token(
             # Stack all hidden states and take mean across layers
             all_hidden_states = torch.stack(outputs.hidden_states)
             last_token_activations = all_hidden_states[:, :, -1, :].mean(dim=0)
-        embedding_tensor = torch.cat((embedding_tensor, last_token_activations), dim=0)
+        embedding_tensor = torch.cat((embedding_tensor, last_token_activations.to('cpu')), dim=0)
         del inputs, outputs, last_token_activations
         gc.collect()
         torch.cuda.empty_cache()
@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
     # Generate embeddings
     #question_embeddings = get_question_embeddings(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=4)
-    question_embeddings = question_activations_last_token(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=4)
+    question_embeddings = question_activations_last_token(csv_path, model_name="Qwen/Qwen1.5-4B-Chat", batch_size=1)
 
     # Save the tensor
     output_path = "../data/question_embeddings.pth"
