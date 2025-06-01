@@ -200,7 +200,7 @@ if __name__ == "__main__":
     question_embeddings = question_embeddings_model_specific(csv_path, model_name=args.model_name, batch_size=1)
 
     # Save the tensor
-    output_path = "data/question_embeddings_model_mean.pth"
+    output_path = f"data/question_embeddings_{model_name.split('/')[1]}.pth"
     torch.save(question_embeddings, output_path)
 
     print(f"Generated embeddings tensor of shape: {question_embeddings.shape}")
